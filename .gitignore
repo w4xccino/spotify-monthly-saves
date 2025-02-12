@@ -47,3 +47,4 @@ venv.bak/
 
 # Cache files
 .cache/
+.cache
