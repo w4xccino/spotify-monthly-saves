@@ -107,7 +107,8 @@ class MonthlyPlaylists:
                 client_secret=client_secret,
                 redirect_uri=redirect_uri,
                 scope="user-library-read playlist-modify-private playlist-modify-public playlist-read-private",
-                open_browser=not headless
+                cache_path=None,
+                open_browser=False
             )
         )
         self.user_id = self.sp.current_user()['id']
