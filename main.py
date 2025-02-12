@@ -5,6 +5,8 @@ from typing import Optional, List
 from spotipy import Spotify
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
+from dotenv import load_dotenv
+import os
 
 class Song:
     """Stores relevant data for a song retrieved from spotify's API.
@@ -33,9 +35,11 @@ class Playlist:
     sp: Spotify
 
     def __init__(self, sp: Spotify, playlist: dict) -> None:
+        if playlist is None:
+            raise ValueError("No playlist data provided")
         self.sp = sp
-        self.name = playlist['name']
-        self.id = playlist['id']
+        self.name = playlist.get('name', 'Unknown Playlist')
+        self.id = playlist.get('id', '')
         self.songs = None
 
     def add_song(self, song: Song):
@@ -153,20 +157,21 @@ class MonthlyPlaylists:
         return True
 
     def __fetch_playlists(self) -> bool:
-        """Fetches and stores current playlists using spotify's api.
+        """Fetches and stores current playlists using Spotify's API.
         :return: True for success, False otherwise.
         """
-
-        self.playlists = None
         try:
             results = self.sp.current_user_playlists()
+            if 'items' not in results or not results['items']:
+                print('No playlists found or empty playlist data')
+                return False
+
+            self.playlists = [Playlist(self.sp, x) for x in results['items'] if x]
+            return True
         except Exception as e:
-            print(repr(e))
+            print(f"An error occurred while fetching playlists: {repr(e)}")
             return False
-        if 'items' not in results:
-            return False
-        self.playlists = [Playlist(self.sp, x) for x in results['items']]
-        return True
+
 
     def __fetch_new_saved_songs(self):
         """Returns list of songs that were added after the last_date checked."""
@@ -174,54 +179,47 @@ class MonthlyPlaylists:
         return [song for song in self.saved_songs if song.added_at > self.last_checked]
 
     def __add_songs_to_playlist(self, songs: List[Song]) -> bool:
-        """Adds songs to playlist that is named from the current month and year (Jan 22).
-
-        :param songs: List of songs to add.
-        :return: True for success, False otherwise.
-        """
+        """Adds songs to a playlist named from the current month and year, creates the playlist if it does not exist."""
+        if not songs:
+            return False
 
         name = songs[0].added_at.strftime(self.name_format)
         existing_playlist = self.__find_playlist(name)
+        
         if existing_playlist is None:
-            return False
+            return False  # Asegura que no procede si no hay playlist válida
+
         for song in songs:
-            # Change playlists if a song is liked from a different month than the previous song
-            curr_name = song.added_at.strftime(self.name_format)
-            if existing_playlist.name != curr_name:
-                existing_playlist = self.__find_playlist(curr_name)
-            if existing_playlist is None:
-                return False
             existing_playlist.add_song(song)
+            
         return True
 
+
     def __find_playlist(self, name: str) -> Optional[Playlist]:
-        """Returns a playlist matching the given name or creates one.
-
-        :param name: The title of the playlist to search for or create.
-        :return: Playlist if successful, None otherwise.
-        """
-
+        """Returns a playlist matching the given name or creates one if it does not exist."""
         playlist = next((x for x in self.playlists if x.name == name), None)
-        # If playlist does not exist attempt to create it
+        
         if playlist is None:
+            print(f"Creating new playlist: {name}")
             try:
-                data = self.sp.user_playlist_create(
-                    user=self.user_id, name=name)
+                data = self.sp.user_playlist_create(user=self.user_id, name=name)
+                new_playlist = Playlist(self.sp, data)
+                self.playlists.append(new_playlist)
+                return new_playlist
             except Exception as e:
-                print(repr(e))
+                print(f"Failed to create playlist: {repr(e)}")
                 return None
-            if data.get('type') != 'playlist':
-                return None
-            playlist = Playlist(sp=self.sp, playlist=data)
-            print(playlist.name, 'was created')
+
         return playlist
 
-spotify = MonthlyPlaylists(
-    client_id= os.environ["CLIENT_ID"],
-    client_secret= os.environ["CLIENT_SECRET"],
-    redirect_uri='http://localhost:3000/'
-)
 
+load_dotenv()
+
+spotify = MonthlyPlaylists(
+    client_id=os.getenv('CLIENT_ID'),
+    client_secret=os.getenv('CLIENT_SECRET'),
+    redirect_uri=os.getenv('REDIRECT_URI')
+)
 # The class updates its date threshold to whichever song it added last.
 # Therefore, calling update_monthly_playlists() multiple times will make minimal api calls
 
